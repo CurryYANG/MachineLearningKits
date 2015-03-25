@@ -1,0 +1,69 @@
+# K-means algorithm
+
+def K_means(clusterNum,data,chooseImage=False):
+    # initialization
+    length,featureNum=data.shape
+    indicator=np.zeros([length,clusterNum])
+    meanValue=np.zeros([clusterNum,featureNum])
+
+    # select first several points as clusters
+    for i in range(clusterNum):
+        index=int(random.uniform(0,length))
+        meanValue[i,:]=data[index,:]
+    meanEstimate=np.zeros([clusterNum,featureNum])
+    temp=np.zeros([length,clusterNum])
+    iterCount=0
+
+    Tag=True
+    # two variables to indicate the changes in clusters of samples
+    identifier_old=np.zeros(len(data))
+    identifier_new=np.zeros(len(data))
+
+    while Tag:
+        if(iterCount>0):
+            for i in range(length):
+                identifier_old[i]=identifier_new[i]
+            for i in range(clusterNum):
+                for j in range(featureNum):
+                    meanValue[i][j]=(meanEstimate[i][j])
+
+        iterCount=iterCount+1
+
+        # distribute points to center clusters
+        # modify distance calculation for image features
+        lambda_f=0.5        # weight to balance which feature should be more important in image clustering
+        for i in range(length):
+            for j in range(clusterNum):
+                if(chooseImage):
+                    temp[i,j]=np.linalg.norm((data[i,0:2]-meanValue[j,0:2]))-lambda_f*np.linalg.norm((data[i,2:4]-meanValue[j,2:4]))
+                else:
+                    temp[i][j]=np.linalg.norm((data[i,:]-meanValue[j,:]))
+
+
+
+        for i in range(length):
+            minPosition=np.argmin(temp[i,:])
+            indicator[i][minPosition]=1
+            identifier_new[i]=minPosition
+
+
+        # calculate the position of center clusters
+        sumIndicator=np.zeros(clusterNum)
+        switch=np.zeros([clusterNum,featureNum])
+        for j in range(clusterNum):
+                sumIndicator[j]=sum(indicator[:,j])
+        switch=np.array(np.dot(indicator.transpose(),data))
+        for i in range(clusterNum):
+            for j in range(featureNum):
+                meanEstimate[i][j]=switch[i][j]/sumIndicator[i]
+
+        # convergence condition
+        counter=0
+        for i in range(length):
+            if(identifier_new[i]==identifier_old[i]):
+                counter=counter+1
+                continue
+        print "This is counter",counter
+        if(counter==length):
+            Tag=False
+    return identifier_new,meanEstimate
