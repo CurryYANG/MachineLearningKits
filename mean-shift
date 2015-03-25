@@ -1,0 +1,51 @@
+# Mean-shift
+def Mean_shift(data,bandwidth):
+    # Initialization
+    sampleLen,dimension=data.shape
+    shift_mean=np.zeros((sampleLen,dimension))
+    old_value=np.zeros((sampleLen,dimension))
+    covariance=np.zeros((1,dimension,dimension))
+    covariance[0]=bandwidth*np.identity(dimension)
+    for i in range(sampleLen):
+        old_value[i,:]=data[i,:]
+
+    # update scheme
+    Tag=True
+    count=0
+
+    for i in range(sampleLen):
+        while(True):
+            numerator=np.dot(data.transpose(),GMM(data,1,np.mat(old_value[i,:]),covariance))
+            #print numerator
+            denomiator=sum(GMM(data,1,np.mat(old_value[i,:]),covariance))
+            shift_mean[i]=np.transpose(numerator)/denomiator
+            print "This is for point ",i
+            if((np.abs(shift_mean[i]-old_value[i])>0.0001).any()):
+                old_value[i,:]=(shift_mean[i,:])
+                print shift_mean[i,:]
+                continue
+            else:
+                print "Convergebce complicated!\n"
+                break
+    np.savetxt("meanValue.txt",shift_mean)
+
+
+    # clustering
+    distributeCluster=-np.ones(sampleLen)
+    clsuterNum=0
+    flag=False
+    for i in range(sampleLen):
+        if flag==True:
+            clsuterNum+=1
+            flag=False
+        for j in range(i,sampleLen):
+            if(((np.abs(shift_mean[i]-shift_mean[j]))<0.1).all() and distributeCluster[j]==-1 ):
+                if distributeCluster[i]!=-1:
+                    distributeCluster[j]=distributeCluster[i]
+                else:
+                    distributeCluster[j]=clsuterNum
+                    flag=True
+    print "Iteration number:",count
+    print distributeCluster
+
+    return distributeCluster,clsuterNum,shift_mean
