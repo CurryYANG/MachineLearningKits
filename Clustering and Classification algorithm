@@ -1,0 +1,350 @@
+__author__ = 'Weifeng'
+
+### This is implementation of K-means, EM-GMM and mean-shift algorithm
+### Date: 2014/10/27
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+from numpy import random
+import math as ma
+import os as os
+
+global featureNum,bandwidth,solverType
+
+# Load data
+def loadData(filePath,fileNameX,fileNameY):
+    data_x=np.loadtxt(filePath+fileNameX)
+    data_y=np.loadtxt(filePath+fileNameY)
+    return data_x,data_y
+# Plot
+def PlotSave(data,identifier,name,trainFile,saveDir,isTruth):
+    spot = [ 'ob', 'og', 'ok','ro','co','yo','xb','xg','xk','xr']
+    for i in range(len(data)):
+        markIndex = int(identifier[i])
+        plt.plot(data[i,0], data[i, 1], spot[markIndex])
+
+    if(not isTruth):
+        plt.title(name)
+        if(solverType==1 or solverType==2):
+            plt.savefig(savePicture(trainFile,saveDir)+name+'_K_'+str(featureNum)+'.jpg',dpi=600)
+        else:
+            plt.savefig(savePicture(trainFile,saveDir)+name+'_Ban_'+str(bandwidth)+'.jpg',dpi=600)
+    else:
+        plt.title('Truth')
+        plt.savefig(savePicture(trainFile,saveDir)+'Truth'+'.jpg',dpi=600)
+
+    plt.show()
+	
+# Save Picture
+def savePicture(trainFile,saveDir):
+    pathDir=os.path.split(trainFile)
+    pictureName=os.path.splitext(pathDir[1])[0]
+    savePicDir=saveDir+pictureName+'/'
+    if(not os.path.exists(savePicDir)):
+        os.makedirs(savePicDir)
+
+    return savePicDir
+
+# K-means algorithm
+
+def K_means(clusterNum,data,chooseImage=False):
+    # initialization
+    length,featureNum=data.shape
+    indicator=np.zeros([length,clusterNum])
+    meanValue=np.zeros([clusterNum,featureNum])
+
+    # select first several points as clusters
+    for i in range(clusterNum):
+        index=int(random.uniform(0,length))
+        meanValue[i,:]=data[index,:]
+    meanEstimate=np.zeros([clusterNum,featureNum])
+    temp=np.zeros([length,clusterNum])
+    iterCount=0
+
+    Tag=True
+    # two variables to indicate the changes in clusters of samples
+    identifier_old=np.zeros(len(data))
+    identifier_new=np.zeros(len(data))
+
+    while Tag:
+        if(iterCount>0):
+            for i in range(length):
+                identifier_old[i]=identifier_new[i]
+            for i in range(clusterNum):
+                for j in range(featureNum):
+                    meanValue[i][j]=(meanEstimate[i][j])
+
+        iterCount=iterCount+1
+
+        # distribute points to center clusters
+        # modify distance calculation for image features
+        lambda_f=0.5        # weight to balance which feature should be more important in image clustering
+        for i in range(length):
+            for j in range(clusterNum):
+                if(chooseImage):
+                    temp[i,j]=np.linalg.norm((data[i,0:2]-meanValue[j,0:2]))-lambda_f*np.linalg.norm((data[i,2:4]-meanValue[j,2:4]))
+                else:
+                    temp[i][j]=np.linalg.norm((data[i,:]-meanValue[j,:]))
+
+
+
+        for i in range(length):
+            minPosition=np.argmin(temp[i,:])
+            indicator[i][minPosition]=1
+            identifier_new[i]=minPosition
+
+
+        # calculate the position of center clusters
+        sumIndicator=np.zeros(clusterNum)
+        switch=np.zeros([clusterNum,featureNum])
+        for j in range(clusterNum):
+                sumIndicator[j]=sum(indicator[:,j])
+        switch=np.array(np.dot(indicator.transpose(),data))
+        for i in range(clusterNum):
+            for j in range(featureNum):
+                meanEstimate[i][j]=switch[i][j]/sumIndicator[i]
+
+        # convergence condition
+        counter=0
+        for i in range(length):
+            if(identifier_new[i]==identifier_old[i]):
+                counter=counter+1
+                continue
+        print "This is counter",counter
+        if(counter==length):
+            Tag=False
+    return identifier_new,meanEstimate
+
+# EM-GMM
+def initial_guess(clusterNum,data,normalizaer):
+    sampLen,dimenson=data.shape
+    ini_weight=np.zeros((clusterNum))
+    ini_mean=np.zeros((clusterNum,dimenson))
+    ini_covariance=np.zeros((clusterNum,dimenson,dimenson))
+
+    for i in range(clusterNum):
+        index=int(random.uniform(0,sampLen))
+        ini_mean[i,:]=data[index,:]
+        ini_weight[i]=1.0/clusterNum
+
+    for i in range(clusterNum):
+        ran=normalizaer*random.random()
+        for j in range(dimenson):
+            ini_covariance[i][j][j]=ran
+
+    return ini_weight,ini_mean,ini_covariance
+
+def GMM(input_data,clusterNum,mean,covariance):
+    sampleLen,dimension=input_data.shape
+    possib=np.zeros((sampleLen,clusterNum))
+
+    # calculate the possibility
+    for i in range(clusterNum):
+        temp1=1.0/(np.power(2*ma.pi,dimension/2)*np.sqrt(np.linalg.det(covariance[i])))
+        for j in range(sampleLen):
+            temp2=-0.5*(np.dot(np.dot((input_data[j,:]-mean[i,:]),np.linalg.inv(covariance[i])),(input_data[j,:]-mean[i,:]).transpose()))
+            possib[j][i]=temp1*np.power(ma.e,temp2)
+
+    return possib
+
+def E_Step(input_weight,input_mean,input_covariance,input_data,clusterNum):
+    samplen,dimension=input_data.shape
+    possib=np.zeros((samplen,clusterNum))
+    sumWeightPoss=np.zeros(samplen)
+    estim_custer=np.zeros((samplen,clusterNum))
+
+    possib=GMM(input_data,clusterNum,input_mean,input_covariance)
+
+    numerator=np.zeros((len(input_data),clusterNum))
+
+    for i in range(len(input_data)):
+        for j in range(clusterNum):
+            numerator[i][j]=possib[i][j]*input_weight[j]
+
+    denominator=np.zeros(samplen)
+    for i in range(samplen):
+        denominator[i]=sum(numerator[i,:])
+
+    for i in range(clusterNum):
+        for j in range(samplen):
+            estim_custer[j,i]=(numerator[j,i]/denominator[j])
+
+    return estim_custer
+
+def M_Step(input_custerposs,clusterNum,input_data):
+    sampleLen,dimension=input_data.shape
+    estim_weight=np.zeros(clusterNum)
+    estim_mean=np.zeros((clusterNum,dimension))
+    estim_variance=np.zeros((clusterNum,dimension,dimension))
+
+    # update the corresponding parameters
+    for i in range(clusterNum):
+        estim_weight[i]=sum(input_custerposs[:,i])/sampleLen
+
+    for i in range(dimension):
+        estim_mean[:,i]=(np.dot(input_custerposs.transpose(),input_data[:,i]))/(estim_weight*sampleLen)
+
+    # subtraction is temp variable, working as the subtraction of sample and mean
+    subtraction=np.zeros((sampleLen,dimension*clusterNum))
+    for i in range(sampleLen):
+        for j in range(clusterNum):
+            subtraction[i,j*dimension:j*dimension+dimension]=input_data[i,:]-estim_mean[j,:]
+    oneCovariance=np.zeros((clusterNum,dimension,dimension))
+
+    for i in range(sampleLen):
+        for j in range(clusterNum):
+          
+            oneCovariance[j]=input_custerposs[i,j]*np.outer((input_data[i,:]-estim_mean[j,:]),(input_data[i,:]-estim_mean[j,:]))
+            #print oneCovariance
+        estim_variance=oneCovariance+estim_variance
+
+    for i in range(clusterNum):
+            estim_variance[i]=estim_variance[i]/(estim_weight[i]*sampleLen)
+
+    return estim_weight,estim_mean,estim_variance
+
+# Convergence standard
+def EM(Samples,clusterNum,iter_num,Epsilon,normalizer):
+    sampleLen,dimension=Samples.shape
+    old_weight=np.zeros(clusterNum)
+    old_mean=np.zeros((clusterNum,dimension))
+    old_covar=np.zeros((clusterNum,dimension,dimension))
+
+    estim_weight=np.zeros((clusterNum))
+    estim_mean=np.zeros((clusterNum,dimension))
+    estim_covar=np.zeros((clusterNum,dimension,dimension))
+
+    estim_cluster=np.zeros((clusterNum,sampleLen))
+    old_weight,old_mean,old_covar=initial_guess(clusterNum,Samples,normalizer)
+    count=0
+    Tag=True
+	
+    while Tag:
+        estim_cluster=E_Step(old_weight,old_mean,old_covar,Samples,clusterNum)
+        estim_weight,estim_mean,estim_covar=M_Step(estim_cluster,clusterNum,Samples)
+
+        summation=np.zeros(dimension)
+        for i in range(dimension):
+            summation[i]=sum(abs(estim_mean[:,i]-old_mean[:,i]))
+            if (summation[i] < Epsilon and summation[i]<Epsilon)or count>iter_num:
+                Tag=False
+        count=count+1
+        old_weight=estim_weight
+        old_mean=estim_mean
+        old_covar=estim_covar
+
+        print "Iteration number: ",count
+        print "Loss Value:", sum(summation),"\n"
+    # distribute the points to clusters
+    clusterdistribut=np.zeros(sampleLen)    #clusternumberCount=np.zeros(len(input_K))
+    print estim_cluster.shape
+    for i in range(sampleLen):
+        maxPosition=np.argmax(estim_cluster[i,:])
+        clusterdistribut[i]=maxPosition
+
+    print "-------------------------------------------------"
+    print "The clusters number set is ",clusterNum
+    print "The EM converges in ",count," iterations"
+
+    return clusterdistribut,estim_mean
+
+# Mean-shift
+def Mean_shift(data,bandwidth):
+    # Initialization
+    sampleLen,dimension=data.shape
+    shift_mean=np.zeros((sampleLen,dimension))
+    old_value=np.zeros((sampleLen,dimension))
+    covariance=np.zeros((1,dimension,dimension))
+    covariance[0]=bandwidth*np.identity(dimension)
+    for i in range(sampleLen):
+        old_value[i,:]=data[i,:]
+
+    # update scheme
+    Tag=True
+    count=0
+
+    for i in range(sampleLen):
+        while(True):
+            numerator=np.dot(data.transpose(),GMM(data,1,np.mat(old_value[i,:]),covariance))
+            #print numerator
+            denomiator=sum(GMM(data,1,np.mat(old_value[i,:]),covariance))
+            shift_mean[i]=np.transpose(numerator)/denomiator
+            print "This is for point ",i
+            if((np.abs(shift_mean[i]-old_value[i])>0.0001).any()):
+                old_value[i,:]=(shift_mean[i,:])
+                print shift_mean[i,:]
+                continue
+            else:
+                print "Convergebce complicated!\n"
+                break
+    np.savetxt("meanValue.txt",shift_mean)
+
+
+    # clustering
+    distributeCluster=-np.ones(sampleLen)
+    clsuterNum=0
+    flag=False
+    for i in range(sampleLen):
+        if flag==True:
+            clsuterNum+=1
+            flag=False
+        for j in range(i,sampleLen):
+            if(((np.abs(shift_mean[i]-shift_mean[j]))<0.1).all() and distributeCluster[j]==-1 ):
+                if distributeCluster[i]!=-1:
+                    distributeCluster[j]=distributeCluster[i]
+                else:
+                    distributeCluster[j]=clsuterNum
+                    flag=True
+    print "Iteration number:",count
+    print distributeCluster
+
+    return distributeCluster,clsuterNum,shift_mean
+
+def calcukateAccuracy(predict,true):
+    accAccount=0
+    length=len(predict)
+    for i in range(length):
+        if(predict[i]==true[i]):
+            accAccount+=1
+    accuracy=accAccount/length
+    return accuracy
+
+def main():
+    filePath='F:/CourseTeaching/PsotGraduateCourse_Cityu/Machine Learning/MLPrograAssignment/Assignemnt2/Data/cluster_data_text/'
+    fileNameX='cluster_data_dataC_X.txt'
+    fileNameY='cluster_data_dataC_Y.txt'
+
+    savePicPath='F:/CourseTeaching/PsotGraduateCourse_Cityu/Machine Learning/MLPrograAssignment/Assignemnt2/PictureResult/P1/'
+    dataX,dataY=loadData(filePath,fileNameX,fileNameY)
+
+    ident=np.zeros(dataX.size)
+    clusterCenter=[]
+    title="This is solver title"
+    if(solverType==1):
+        title="K-means"
+        ident,clusterCenter=K_means(featureNum,dataX.transpose())
+    elif(solverType==2):
+        title="EM"
+        ident,clusterCenter=EM(dataX.transpose(),featureNum,500,0.0001,10)
+
+    elif(solverType==3):
+        title="Mean-shift"
+        ident,num,clusterCenter=Mean_shift(dataX.transpose(),bandwidth)
+    else:
+        print "No Problem Solver here!"
+        exit(0)
+    np.savetxt(title+"_Identifier.txt",ident)
+
+    PlotSave(dataX.transpose(),ident,title,filePath+fileNameX,savePicPath,False)
+
+    # just plot the truth pic for once, so I choose the time when I do K-means.
+    #if(solverType==1):
+    PlotSave(dataX.transpose(),dataY.transpose(),title,filePath+fileNameX,savePicPath,True)
+
+if __name__ == '__main__':
+    featureNum=4
+    bandwidth=10
+	
+    solverType=1
+    main()
